@@ -1,1 +1,751 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MakeSite Studio</title>
 
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;
+ background:#0b1220;
+ color:white;
+ font-family:Arial,sans-serif;
+}
+header{
+ display:flex;
+ gap:8px;
+ align-items:center;
+ padding:12px;
+ background:#111c30;
+ flex-wrap:wrap;
+}
+button,input,select{
+ background:#1c3050;
+ color:white;
+ border:1px solid #395376;
+ border-radius:7px;
+ padding:9px;
+}
+button{cursor:pointer}
+button:hover{background:#29578d}
+main{
+ display:grid;
+ grid-template-columns:250px 1fr 260px;
+ height:calc(100vh - 70px);
+}
+aside{
+ padding:15px;
+ background:#0c1526;
+ overflow:auto;
+}
+#workspace{
+ overflow:auto;
+ background:#263247;
+ padding:20px;
+}
+#page{
+ position:relative;
+ width:900px;
+ height:900px;
+ background:linear-gradient(#59667c,#b1b5bf);
+ overflow:hidden;
+}
+.item{
+ position:absolute;
+ cursor:move;
+ user-select:none;
+}
+.item.selected{
+ outline:2px dashed #65b7ff;
+}
+.item button{
+ width:100%;
+ height:100%;
+ font-size:20px;
+}
+.item audio{
+ width:100%;
+}
+.item video{
+ width:100%;
+ height:100%;
+}
+.item img{
+ width:100%;
+ height:100%;
+ object-fit:contain;
+}
+label{
+ display:block;
+ margin-top:12px;
+ font-size:13px;
+}
+input,select{
+ width:100%;
+ margin-top:5px;
+}
+.tool{
+ width:100%;
+ margin:5px 0;
+}
+#nodes{
+ display:none;
+ position:relative;
+ height:100%;
+ background:#19243a;
+ overflow:hidden;
+}
+.node{
+ position:absolute;
+ background:#253b60;
+ border:1px solid #6389bb;
+ border-radius:10px;
+ padding:15px;
+ width:190px;
+ cursor:move;
+}
+#menu{
+ display:none;
+ position:fixed;
+ background:#172943;
+ padding:10px;
+ border:1px solid #6389bb;
+ z-index:1000;
+}
+#menu button{
+ display:block;
+ width:180px;
+ margin:5px;
+}
+#preview{
+ display:none;
+ position:fixed;
+ inset:0;
+ z-index:2000;
+ background:#111;
+ overflow:auto;
+}
+#previewPage{
+ position:relative;
+ width:900px;
+ min-height:900px;
+ margin:40px auto;
+}
+#closePreview{
+ position:fixed;
+ top:10px;
+ right:20px;
+ z-index:2001;
+}
+.small{font-size:12px;color:#a9b9d0}
+</style>
+</head>
+
+<body>
+
+<header>
+<strong>🛠 MakeSite Studio</strong>
+<button onclick="showDesign()">🎨 デザイン</button>
+<button onclick="showNodes()">🧩 ノード</button>
+<button onclick="loadSample()">🌟 公式サンプル</button>
+<button onclick="testSite()">▶ 動作テスト</button>
+<button onclick="saveProject()">💾 保存</button>
+<button onclick="document.getElementById('load').click()">📂 読み込み</button>
+<input id="load" type="file" accept=".json" hidden onchange="loadProject(event)">
+<button onclick="exportSite()">📦 完成</button>
+</header>
+
+<main>
+
+<aside>
+<h3>🎨 デザイン</h3>
+
+<label>サイト名</label>
+<input id="siteName" value="My Website">
+
+<label>背景の種類</label>
+<select id="bgType" onchange="updateBackground()">
+<option value="gradient">グラデーション</option>
+<option value="solid">単色</option>
+</select>
+
+<label>色①</label>
+<input type="color" id="color1" value="#59667c" onchange="updateBackground()">
+
+<label>色②</label>
+<input type="color" id="color2" value="#b1b5bf" onchange="updateBackground()">
+
+<label>ページの高さ</label>
+<input id="pageHeight" type="number" value="900" onchange="updateBackground()">
+
+<hr>
+
+<h3>➕ パーツ追加</h3>
+
+<button class="tool" onclick="addItem('text')">📝 テキスト</button>
+<button class="tool" onclick="addItem('button')">🔘 ボタン</button>
+<button class="tool" onclick="addItem('audio')">🔊 音声</button>
+<button class="tool" onclick="addItem('video')">🎬 動画</button>
+<button class="tool" onclick="addItem('image')">🖼 画像</button>
+
+<hr>
+<h3>パーツ一覧</h3>
+<div id="itemList"></div>
+
+<p class="small">
+パーツをドラッグして配置できます。
+ノード画面では右クリックで追加できます。
+</p>
+</aside>
+
+<section id="workspace">
+<div id="page"></div>
+<div id="nodes" oncontextmenu="openMenu(event)"></div>
+</section>
+
+<aside>
+<h3>⚙ 選択したパーツの設定</h3>
+<div id="settings">パーツを選択してください。</div>
+</aside>
+
+</main>
+
+<div id="menu">
+<button onclick="addNode('click')">🟣 ボタンが押された</button>
+<button onclick="addNode('audio')">🔊 音声を再生</button>
+<button onclick="addNode('video')">▶ 動画を再生</button>
+</div>
+
+<div id="preview">
+<button id="closePreview" onclick="closeTest()">✕ 閉じる</button>
+<div id="previewPage"></div>
+</div>
+
+<script>
+let items=[];
+let nodes=[];
+let selected=null;
+let nextId=1;
+let menuX=100;
+let menuY=100;
+let dragging=null;
+
+const $=id=>document.getElementById(id);
+
+function addItem(type){
+ const item={
+  id:"p"+nextId++,
+  type,
+  x:100,
+  y:100+items.length*45,
+  w:250,
+  h:60,
+  text:type==="button"?"ボタン":"テキスト",
+  src:""
+ };
+
+ if(type==="video"||type==="image")item.h=160;
+ if(type==="audio")item.h=50;
+
+ items.push(item);
+ selected=item.id;
+ render();
+}
+
+function render(){
+ const page=$("page");
+ page.innerHTML="";
+
+ updateBackground();
+ 
+ for(const item of items){
+  const el=document.createElement("div");
+  el.className="item"+(selected===item.id?" selected":"");
+  el.style.left=item.x+"px";
+  el.style.top=item.y+"px";
+  el.style.width=item.w+"px";
+  el.style.height=item.h+"px";
+  el.dataset.id=item.id;
+
+  if(item.type==="text"){
+   el.textContent=item.text;
+   el.style.fontSize="28px";
+   el.style.fontWeight="bold";
+  }
+
+  if(item.type==="button"){
+   const b=document.createElement("button");
+   b.textContent=item.text;
+   el.appendChild(b);
+  }
+
+  if(item.type==="audio"){
+   const a=document.createElement("audio");
+   a.controls=true;
+   if(item.src)a.src=item.src;
+   el.appendChild(a);
+  }
+
+  if(item.type==="video"){
+   const v=document.createElement("video");
+   v.controls=true;
+   if(item.src)v.src=item.src;
+   el.appendChild(v);
+  }
+
+  if(item.type==="image"){
+   const img=document.createElement("img");
+   if(item.src)img.src=item.src;
+   el.appendChild(img);
+  }
+
+  el.onpointerdown=e=>{
+   if(e.target.closest("audio,video"))return;
+   selected=item.id;
+   dragging={
+    id:item.id,
+    x:e.clientX,
+    y:e.clientY,
+    ox:item.x,
+    oy:item.y
+   };
+   el.setPointerCapture(e.pointerId);
+   renderSettings();
+  };
+
+  el.onpointermove=e=>{
+   if(!dragging||dragging.id!==item.id)return;
+   item.x=dragging.ox+e.clientX-dragging.x;
+   item.y=dragging.oy+e.clientY-dragging.y;
+   el.style.left=item.x+"px";
+   el.style.top=item.y+"px";
+  };
+
+  el.onpointerup=()=>{
+   dragging=null;
+   render();
+  };
+
+  page.appendChild(el);
+ }
+
+ renderList();
+ renderSettings();
+}
+
+function renderList(){
+ $("itemList").innerHTML="";
+ for(const item of items){
+  const b=document.createElement("button");
+  b.className="tool";
+  b.textContent=item.type+" "+item.text;
+  b.onclick=()=>{
+   selected=item.id;
+   render();
+  };
+  $("itemList").appendChild(b);
+ }
+}
+
+function renderSettings(){
+ const box=$("settings");
+ const item=items.find(i=>i.id===selected);
+
+ if(!item){
+  box.textContent="パーツを選択してください。";
+  return;
+ }
+
+ box.innerHTML="";
+
+ function field(label,value,callback,type="text"){
+  const l=document.createElement("label");
+  l.textContent=label;
+  const inp=document.createElement("input");
+  inp.type=type;
+  inp.value=value;
+  inp.onchange=()=>callback(inp.value);
+  box.append(l,inp);
+ }
+
+ if(item.type==="text"||item.type==="button"){
+  field("表示する文字",item.text,v=>{
+   item.text=v;
+   render();
+  });
+ }
+
+ field("左位置 X",item.x,v=>{
+  item.x=Number(v);render();
+ },"number");
+
+ field("上位置 Y",item.y,v=>{
+  item.y=Number(v);render();
+ },"number");
+
+ field("横幅",item.w,v=>{
+  item.w=Number(v);render();
+ },"number");
+
+ field("高さ",item.h,v=>{
+  item.h=Number(v);render();
+ },"number");
+
+ if(["audio","video","image"].includes(item.type)){
+  const label=document.createElement("label");
+  label.textContent="ファイルを選択";
+  const input=document.createElement("input");
+  input.type="file";
+  input.accept=item.type==="audio"?"audio/*":
+    item.type==="video"?"video/*":"image/*";
+
+  input.onchange=()=>{
+   const file=input.files[0];
+   if(!file)return;
+
+   const reader=new FileReader();
+   reader.onload=()=>{
+    item.src=reader.result;
+    render();
+   };
+   reader.readAsDataURL(file);
+  };
+  box.append(label,input);
+ }
+
+ const del=document.createElement("button");
+ del.textContent="🗑 削除";
+ del.onclick=()=>{
+  items=items.filter(i=>i.id!==item.id);
+  selected=null;
+  render();
+ };
+ box.appendChild(del);
+}
+
+function updateBackground(){
+ const page=$("page");
+ const a=$("color1").value;
+ const b=$("color2").value;
+
+ page.style.height=Number($("pageHeight").value)+"px";
+
+ page.style.background=$("bgType").value==="solid"
+  ?a:`linear-gradient(${a},${b})`;
+}
+
+function showDesign(){
+ $("page").style.display="block";
+ $("nodes").style.display="none";
+}
+
+function showNodes(){
+ $("page").style.display="none";
+ $("nodes").style.display="block";
+ renderNodes();
+}
+
+function openMenu(e){
+ e.preventDefault();
+ menuX=e.offsetX;
+ menuY=e.offsetY;
+ $("menu").style.display="block";
+ $("menu").style.left=e.clientX+"px";
+ $("menu").style.top=e.clientY+"px";
+}
+
+document.addEventListener("click",e=>{
+ if(!e.target.closest("#menu"))$("menu").style.display="none";
+});
+
+function addNode(type){
+ const n={
+  id:"n"+nextId++,
+  type,
+  x:menuX,
+  y:menuY,
+  target:"",
+  next:""
+ };
+
+ nodes.push(n);
+ $("menu").style.display="none";
+ renderNodes();
+}
+
+function renderNodes(){
+ const box=$("nodes");
+ box.innerHTML="";
+
+ for(const node of nodes){
+  const el=document.createElement("div");
+  el.className="node";
+  el.style.left=node.x+"px";
+  el.style.top=node.y+"px";
+
+  const title=document.createElement("strong");
+  title.textContent={
+   click:"🟣 ボタンが押された",
+   audio:"🔊 音声を再生",
+   video:"▶ 動画を再生"
+  }[node.type];
+
+  el.appendChild(title);
+
+  const label=document.createElement("label");
+  label.textContent="対象パーツ";
+
+  const select=document.createElement("select");
+  const allowed=node.type==="click"?"button":node.type;
+
+  select.innerHTML='<option value="">選択してください</option>';
+
+  for(const item of items.filter(i=>i.type===allowed)){
+   const opt=document.createElement("option");
+   opt.value=item.id;
+   opt.textContent=item.text+" ("+item.id+")";
+   select.appendChild(opt);
+  }
+
+  select.value=node.target;
+  select.onchange=()=>node.target=select.value;
+
+  el.append(label,select);
+
+  if(node.type==="click"){
+   const nextLabel=document.createElement("label");
+   nextLabel.textContent="実行するノード";
+
+   const next=document.createElement("select");
+   next.innerHTML='<option value="">なし</option>';
+
+   for(const other of nodes.filter(n=>n.id!==node.id&&n.type!=="click")){
+    const opt=document.createElement("option");
+    opt.value=other.id;
+    opt.textContent=other.type+" "+other.id;
+    next.appendChild(opt);
+   }
+
+   next.value=node.next;
+   next.onchange=()=>node.next=next.value;
+   el.append(nextLabel,next);
+  }
+
+  el.onpointerdown=e=>{
+   if(e.target.tagName==="SELECT")return;
+
+   const sx=e.clientX,sy=e.clientY;
+   const ox=node.x,oy=node.y;
+
+   el.setPointerCapture(e.pointerId);
+
+   el.onpointermove=ev=>{
+    node.x=ox+ev.clientX-sx;
+    node.y=oy+ev.clientY-sy;
+    el.style.left=node.x+"px";
+    el.style.top=node.y+"px";
+   };
+
+   el.onpointerup=()=>{
+    el.onpointermove=null;
+   };
+  };
+
+  box.appendChild(el);
+ }
+}
+
+function testSite(){
+ const target=$("previewPage");
+ target.innerHTML="";
+
+ const original=$("page");
+ target.style.height=original.style.height;
+ target.style.background=original.style.background;
+
+ for(const item of items){
+  const el=document.createElement("div");
+  el.className="item";
+  el.style.left=item.x+"px";
+  el.style.top=item.y+"px";
+  el.style.width=item.w+"px";
+  el.style.height=item.h+"px";
+
+  if(item.type==="text"){
+   el.textContent=item.text;
+   el.style.fontSize="28px";
+   el.style.fontWeight="bold";
+  }
+
+  if(item.type==="button"){
+   const b=document.createElement("button");
+   b.textContent=item.text;
+   b.onclick=()=>execute(item.id,target);
+   el.appendChild(b);
+  }
+
+  if(["audio","video","image"].includes(item.type)){
+   const tag=item.type==="image"?"img":item.type;
+   const media=document.createElement(tag);
+   media.dataset.mediaId=item.id;
+   media.src=item.src;
+
+   if(tag!=="img")media.controls=true;
+   if(tag==="video"||tag==="img"){
+    media.style.width="100%";
+    media.style.height="100%";
+   }
+
+   el.appendChild(media);
+  }
+
+  target.appendChild(el);
+ }
+
+ $("preview").style.display="block";
+}
+
+function execute(buttonId,root){
+ const triggers=nodes.filter(n=>
+  n.type==="click"&&n.target===buttonId
+ );
+
+ for(const trigger of triggers){
+  const action=nodes.find(n=>n.id===trigger.next);
+  if(!action)continue;
+
+  const media=root.querySelector(
+   '[data-media-id="'+action.target+'"]'
+  );
+
+  if(media&&typeof media.play==="function"){
+   media.currentTime=0;
+   media.play().catch(err=>{
+    alert("再生できません: "+err.message);
+   });
+  }
+ }
+}
+
+function closeTest(){
+ $("preview").style.display="none";
+ $("previewPage").innerHTML="";
+}
+
+function saveProject(){
+ const data={
+  items,nodes,
+  name:$("siteName").value,
+  bgType:$("bgType").value,
+  color1:$("color1").value,
+  color2:$("color2").value,
+  height:$("pageHeight").value
+ };
+
+ download(
+  "MakeSite-project.json",
+  JSON.stringify(data),
+  "application/json"
+ );
+}
+
+function loadProject(event){
+ const file=event.target.files[0];
+ if(!file)return;
+
+ const reader=new FileReader();
+
+ reader.onload=()=>{
+  try{
+   const data=JSON.parse(reader.result);
+   items=data.items||[];
+   nodes=data.nodes||[];
+   $("siteName").value=data.name||"My Website";
+   $("bgType").value=data.bgType||"gradient";
+   $("color1").value=data.color1||"#59667c";
+   $("color2").value=data.color2||"#b1b5bf";
+   $("pageHeight").value=data.height||900;
+   nextId=Date.now();
+   selected=null;
+   render();
+  }catch(e){
+   alert("読み込み失敗: "+e.message);
+  }
+ };
+
+ reader.readAsText(file);
+}
+
+function download(name,text,type){
+ const blob=new Blob([text],{type});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");
+ a.href=url;
+ a.download=name;
+ a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function exportSite(){
+ alert(
+  "この軽量版では完成サイトのZIP出力は未実装です。"+
+  "編集データのJSON保存は利用できます。"
+ );
+}
+
+function loadSample(){
+ items=[
+  {
+   id:"sample1",type:"button",
+   x:350,y:95,w:250,h:60,
+   text:"MakeBGM",src:""
+  },
+  {
+   id:"sample2",type:"audio",
+   x:100,y:600,w:300,h:50,
+   text:"music-studio-116bpm.wav",
+   src:"music-studio-116bpm.wav"
+  },
+  {
+   id:"sample3",type:"button",
+   x:350,y:200,w:250,h:60,
+   text:"TV",src:""
+  },
+  {
+   id:"sample4",type:"text",
+   x:260,y:280,w:450,h:70,
+   text:"Let's try writing a program",
+   src:""
+  }
+ ];
+
+ nodes=[
+  {
+   id:"sampleNode1",
+   type:"click",
+   x:100,y:100,
+   target:"sample1",
+   next:"sampleNode2"
+  },
+  {
+   id:"sampleNode2",
+   type:"audio",
+   x:400,y:100,
+   target:"sample2",
+   next:""
+  }
+ ];
+
+ selected=null;
+ render();
+
+ alert("公式サンプルを読み込みました！");
+}
+
+render();
+</script>
+
+</body>
+</html>
